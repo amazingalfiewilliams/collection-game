@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alfie's Dream</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .game-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            margin: 0 0 20px 0;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+
+        #gameCanvas {
+            border: 3px solid #fff;
+            border-radius: 10px;
+            background: #2c3e50;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        .controls {
+            margin-top: 15px;
+            text-align: center;
+            font-size: 1.1em;
+        }
+
+        .controls p {
+            margin: 5px 0;
+        }
+
+        .restart-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1.1em;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+
+        .restart-btn:hover {
+            background: #c0392b;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>🎮 Alfie's Dream</h1>
+        
+        <div class="game-info">
+            <div>Score: <span id="score">0</span></div>
+            <div>Items Collected: <span id="itemCount">0</span></div>
+        </div>
+        
+        <canvas id="gameCanvas" width="600" height="400"></canvas>
+        
+        <div class="controls">
+            <p>🎯 Use ARROW KEYS or WASD to move</p>
+            <p>🥕 Collect the carrots to increase your score!</p>
+            <div style="margin: 10px 0;">
+                <button class="restart-btn" onclick="startMusic()" style="background: #27ae60;">🎵 Play Music</button>
+                <button class="restart-btn" onclick="stopMusic()" style="background: #e67e22; margin-left: 10px;">🔇 Stop Music</button>
+            </div>
+            <button class="restart-btn" onclick="restartGame()">Restart Game</button>
+        </div>
+    </div>
+
+    <script>
+        // Game variables
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const itemCountElement = document.getElementById('itemCount');
+
+        // Audio context for background music
+        let audioContext;
+        let musicGain;
+        let isPlaying = false;
+
+        // Initialize audio context and create calming background music
+        function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                musicGain = audioContext.createGain();
+                musicGain.connect(audioContext.destination);
+                musicGain.gain.value = 0.1; // Low volume for background music
+            } catch (e) {
+                console.log('Web Audio API not supported:', e);
+                audioContext = null;
+            }
+        }
+
+        // Create a gentle tone
+        function createTone(frequency, duration, startTime, fadeIn = 0.1, fadeOut = 0.1) {
+            if (!audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(musicGain);
+            
+            // Use a soft sine wave
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(frequency, startTime);
+            
+            // Gentle volume envelope
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, startTime + fadeIn);
+            gainNode.gain.linearRampToValueAtTime(0.3, startTime + duration - fadeOut);
+            gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+            
+            oscillator.start(startTime);
+            oscillator.stop(startTime + duration);
+        }
+
+        // Create tinkling sound effect for collecting carrots
+        function playTinkleSound() {
+            try {
+                if (!audioContext || audioContext.state !== 'running') return;
+                
+                const now = audioContext.currentTime;
+                
+                // Create a magical tinkling sound with multiple frequencies
+                const frequencies = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+                
+                frequencies.forEach((freq, index) => {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination); // Direct to output for sound effects
+                    
+                    // Use sine wave for pure tone
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(freq, now + index * 0.05);
+                    
+                    // Quick, bright envelope for tinkling effect
+                    gainNode.gain.setValueAtTime(0, now + index * 0.05);
+                    gainNode.gain.setValueAtTime(0.15, now + index * 0.05 + 0.01);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + index * 0.05 + 0.3);
+                    
+                    oscillator.start(now + index * 0.05);
+                    oscillator.stop(now + index * 0.05 + 0.3);
+                });
+            } catch (error) {
+                console.log('Audio error:', error);
+                // Continue game even if audio fails
+            }
+        }
+
+        // Play calming background music loop
+        function playBackgroundMusic() {
+            if (!audioContext || isPlaying) return;
+            
+            isPlaying = true;
+            const now = audioContext.currentTime;
+            
+            // Gentle chord progression in C major pentatonic (calming scale)
+            const notes = [
+                { freq: 261.63, time: 0 },    // C4
+                { freq: 329.63, time: 2 },    // E4
+                { freq: 392.00, time: 4 },    // G4
+                { freq: 523.25, time: 6 },    // C5
+                { freq: 392.00, time: 8 },    // G4
+                { freq: 329.63, time: 10 },   // E4
+                { freq: 293.66, time: 12 },   // D4
+                { freq: 261.63, time: 14 }    // C4
+            ];
+            
+            // Play the melody
+            notes.forEach(note => {
+                createTone(note.freq, 2.5, now + note.time, 0.2, 0.3);
+                // Add a soft harmony (fifth above)
+                createTone(note.freq * 1.5, 2.5, now + note.time, 0.2, 0.3);
+            });
+            
+            // Schedule next loop
+            setTimeout(() => {
+                isPlaying = false;
+                if (audioContext && audioContext.state === 'running') {
+                    playBackgroundMusic();
+                }
+            }, 16000); // 16 seconds loop
+        }
+
+        // Start music (must be triggered by user interaction)
+        function startMusic() {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            playBackgroundMusic();
+        }
+
+        // Stop music
+        function stopMusic() {
+            if (audioContext) {
+                audioContext.suspend();
+                isPlaying = false;
+            }
+        }
+
+        let gameState = {
+            player: {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                size: 15,
+                speed: 3,
+                color: '#3498db'
+            },
+            items: [],
+            score: 0,
+            itemsCollected: 0,
+            keys: {},
+            lastFireworkMilestone: 0,
+            fireworks: []
+        };
+
+        // Item class
+        class CollectibleItem {
+            constructor() {
+                this.x = Math.random() * (canvas.width - 20) + 10;
+                this.y = Math.random() * (canvas.height - 20) + 10;
+                this.size = 8;
+                this.color = '#ff6b35';
+                this.pulse = 0;
+            }
+
+            update() {
+                this.pulse += 0.1;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10 + Math.sin(this.pulse) * 3;
+                
+                // Draw carrot shape
+                this.drawCarrot(this.x, this.y, this.size + Math.sin(this.pulse) * 1);
+                ctx.restore();
+            }
+
+            drawCarrot(x, y, size) {
+                // Draw carrot body (orange triangle)
+                ctx.fillStyle = '#ff6b35';
+                ctx.beginPath();
+                ctx.moveTo(x, y + size);
+                ctx.lineTo(x - size * 0.6, y - size * 0.3);
+                ctx.lineTo(x + size * 0.6, y - size * 0.3);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Draw carrot lines
+                ctx.strokeStyle = '#e55039';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x - size * 0.3, y);
+                ctx.lineTo(x + size * 0.3, y);
+                ctx.moveTo(x - size * 0.2, y - size * 0.2);
+                ctx.lineTo(x + size * 0.2, y - size * 0.2);
+                ctx.stroke();
+                
+                // Draw carrot top (green leaves)
+                ctx.fillStyle = '#27ae60';
+                ctx.beginPath();
+                ctx.moveTo(x - size * 0.4, y - size * 0.3);
+                ctx.lineTo(x - size * 0.2, y - size * 0.8);
+                ctx.lineTo(x, y - size * 0.3);
+                ctx.lineTo(x + size * 0.2, y - size * 0.8);
+                ctx.lineTo(x + size * 0.4, y - size * 0.3);
+                ctx.fill();
+            }
+        }
+
+        // Firework particle class
+        class FireworkParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 8;
+                this.vy = (Math.random() - 0.5) * 8;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.02 + 0.01;
+                this.size = Math.random() * 3 + 1;
+                this.color = `hsl(${Math.random() * 360}, 100%, 70%)`;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.1; // gravity
+                this.life -= this.decay;
+                this.vx *= 0.98; // air resistance
+                this.vy *= 0.98;
+            }
+
+            draw() {
+                if (this.life <= 0) return;
+                
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            isDead() {
+                return this.life <= 0;
+            }
+        }
+
+        // Create fireworks explosion
+        function createFireworks() {
+            for (let i = 0; i < 5; i++) { // 5 fireworks
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height * 0.5 + canvas.height * 0.1;
+                
+                // Create particles for each firework
+                for (let j = 0; j < 15; j++) {
+                    gameState.fireworks.push(new FireworkParticle(x, y));
+                }
+            }
+        }
+
+        // Update and draw fireworks
+        function updateFireworks() {
+            for (let i = gameState.fireworks.length - 1; i >= 0; i--) {
+                const particle = gameState.fireworks[i];
+                particle.update();
+                particle.draw();
+                
+                if (particle.isDead()) {
+                    gameState.fireworks.splice(i, 1);
+                }
+            }
+        }
+
+        // Play fireworks sound effect
+        function playFireworksSound() {
+            try {
+                if (!audioContext || audioContext.state !== 'running') return;
+                
+                const now = audioContext.currentTime;
+                
+                // Create explosion sound with multiple frequencies
+                for (let i = 0; i < 5; i++) {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    // Random low frequency for explosion effect
+                    oscillator.type = 'sawtooth';
+                    oscillator.frequency.setValueAtTime(Math.random() * 200 + 100, now + i * 0.1);
+                    
+                    // Quick burst envelope
+                    gainNode.gain.setValueAtTime(0, now + i * 0.1);
+                    gainNode.gain.setValueAtTime(0.3, now + i * 0.1 + 0.01);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.5);
+                    
+                    oscillator.start(now + i * 0.1);
+                    oscillator.stop(now + i * 0.1 + 0.5);
+                }
+                
+                // Add high-pitched celebratory notes
+                const celebrationNotes = [523.25, 659.25, 783.99, 1046.5, 1318.5]; // C5 to E6
+                celebrationNotes.forEach((freq, index) => {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(freq, now + 0.5 + index * 0.1);
+                    
+                    gainNode.gain.setValueAtTime(0, now + 0.5 + index * 0.1);
+                    gainNode.gain.setValueAtTime(0.2, now + 0.5 + index * 0.1 + 0.01);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5 + index * 0.1 + 0.4);
+                    
+                    oscillator.start(now + 0.5 + index * 0.1);
+                    oscillator.stop(now + 0.5 + index * 0.1 + 0.4);
+                });
+                
+            } catch (error) {
+                console.log('Fireworks sound error:', error);
+            }
+        }
+
+        // Initialize game
+        function initGame() {
+            gameState.player.x = canvas.width / 2;
+            gameState.player.y = canvas.height / 2;
+            gameState.items = [];
+            gameState.score = 0;
+            gameState.itemsCollected = 0;
+            gameState.lastFireworkMilestone = 0;
+            gameState.fireworks = [];
+            
+            // Spawn initial items
+            for (let i = 0; i < 8; i++) {
+                spawnItem();
+            }
+            
+            updateUI();
+        }
+
+        // Spawn new collectible item
+        function spawnItem() {
+            let newItem;
+            let attempts = 0;
+            
+            do {
+                newItem = new CollectibleItem();
+                attempts++;
+            } while (getDistance(newItem, gameState.player) < 50 && attempts < 10);
+            
+            gameState.items.push(newItem);
+        }
+
+        // Calculate distance between two objects
+        function getDistance(obj1, obj2) {
+            const dx = obj1.x - obj2.x;
+            const dy = obj1.y - obj2.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Handle player movement
+        function updatePlayer() {
+            const player = gameState.player;
+            
+            if (gameState.keys['ArrowLeft'] || gameState.keys['a'] || gameState.keys['A']) {
+                player.x -= player.speed;
+            }
+            if (gameState.keys['ArrowRight'] || gameState.keys['d'] || gameState.keys['D']) {
+                player.x += player.speed;
+            }
+            if (gameState.keys['ArrowUp'] || gameState.keys['w'] || gameState.keys['W']) {
+                player.y -= player.speed;
+            }
+            if (gameState.keys['ArrowDown'] || gameState.keys['s'] || gameState.keys['S']) {
+                player.y += player.speed;
+            }
+
+            // Keep player within canvas bounds
+            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+        }
+
+        // Check for collisions
+        function checkCollisions() {
+            for (let i = gameState.items.length - 1; i >= 0; i--) {
+                const item = gameState.items[i];
+                const distance = getDistance(gameState.player, item);
+                
+                if (distance < gameState.player.size + item.size) {
+                    // Collision detected
+                    gameState.items.splice(i, 1);
+                    gameState.score += 10;
+                    gameState.itemsCollected++;
+                    
+                    // Try to play tinkling sound effect (but don't break game if it fails)
+                    try {
+                        playTinkleSound();
+                    } catch (error) {
+                        console.log('Sound effect error:', error);
+                    }
+                    
+                    // Check for fireworks trigger every 500 points
+                    const currentMilestone = Math.floor(gameState.score / 500);
+                    if (currentMilestone > gameState.lastFireworkMilestone && gameState.score >= 500) {
+                        gameState.lastFireworkMilestone = currentMilestone;
+                        createFireworks();
+                        try {
+                            playFireworksSound();
+                        } catch (error) {
+                            console.log('Fireworks sound error:', error);
+                        }
+                    }
+                    
+                    // Spawn new item
+                    spawnItem();
+                    
+                    updateUI();
+                }
+            }
+        }
+
+        // Update UI elements
+        function updateUI() {
+            scoreElement.textContent = gameState.score;
+            itemCountElement.textContent = gameState.itemsCollected;
+        }
+
+        // Draw player
+        function drawPlayer() {
+            const player = gameState.player;
+            ctx.save();
+            
+            // Draw guinea pig body
+            ctx.fillStyle = '#8b4513';
+            ctx.strokeStyle = '#654321';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = player.color;
+            ctx.shadowBlur = 10;
+            
+            // Main body (oval shape)
+            ctx.beginPath();
+            ctx.ellipse(player.x, player.y, player.size, player.size * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Draw guinea pig ears
+            ctx.fillStyle = '#d2691e';
+            ctx.beginPath();
+            // Left ear
+            ctx.ellipse(player.x - player.size * 0.6, player.y - player.size * 0.7, player.size * 0.3, player.size * 0.5, -0.3, 0, Math.PI * 2);
+            // Right ear
+            ctx.ellipse(player.x + player.size * 0.6, player.y - player.size * 0.7, player.size * 0.3, player.size * 0.5, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner ears
+            ctx.fillStyle = '#ff69b4';
+            ctx.beginPath();
+            ctx.ellipse(player.x - player.size * 0.6, player.y - player.size * 0.7, player.size * 0.15, player.size * 0.25, -0.3, 0, Math.PI * 2);
+            ctx.ellipse(player.x + player.size * 0.6, player.y - player.size * 0.7, player.size * 0.15, player.size * 0.25, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw guinea pig face
+            // Eyes
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(player.x - 4, player.y - 3, 2, 0, Math.PI * 2);
+            ctx.arc(player.x + 4, player.y - 3, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Eye shine
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(player.x - 3, player.y - 4, 1, 0, Math.PI * 2);
+            ctx.arc(player.x + 5, player.y - 4, 1, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Snout
+            ctx.fillStyle = '#ff69b4';
+            ctx.beginPath();
+            ctx.ellipse(player.x, player.y + 2, 3, 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Nose
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y + 1, 1, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Mouth
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(player.x, player.y + 3, 2, 0, Math.PI);
+            ctx.stroke();
+            
+            // Whiskers
+            ctx.beginPath();
+            ctx.moveTo(player.x - 8, player.y);
+            ctx.lineTo(player.x - 12, player.y - 1);
+            ctx.moveTo(player.x - 8, player.y + 2);
+            ctx.lineTo(player.x - 12, player.y + 2);
+            ctx.moveTo(player.x + 8, player.y);
+            ctx.lineTo(player.x + 12, player.y - 1);
+            ctx.moveTo(player.x + 8, player.y + 2);
+            ctx.lineTo(player.x + 12, player.y + 2);
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+
+        // Draw dreamy background
+        function drawDreamyBackground() {
+            // Create gradient background
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, '#ff9a9e');
+            gradient.addColorStop(0.3, '#fecfef');
+            gradient.addColorStop(0.6, '#fecfef');
+            gradient.addColorStop(1, '#ffd1ff');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Add floating dreamy clouds
+            const time = Date.now() * 0.001;
+            ctx.save();
+            
+            // Cloud 1
+            drawCloud(100 + Math.sin(time * 0.5) * 20, 50 + Math.cos(time * 0.3) * 10, 40, 'rgba(255, 255, 255, 0.3)');
+            // Cloud 2
+            drawCloud(300 + Math.sin(time * 0.7) * 30, 80 + Math.cos(time * 0.4) * 15, 35, 'rgba(255, 255, 255, 0.25)');
+            // Cloud 3
+            drawCloud(500 + Math.sin(time * 0.4) * 25, 120 + Math.cos(time * 0.6) * 12, 45, 'rgba(255, 255, 255, 0.2)');
+            
+            // Add floating sparkles
+            for (let i = 0; i < 8; i++) {
+                const sparkleX = (canvas.width / 8) * i + Math.sin(time + i) * 30;
+                const sparkleY = 200 + Math.sin(time * 0.8 + i * 0.5) * 50;
+                drawSparkle(sparkleX, sparkleY, 2 + Math.sin(time * 2 + i) * 1);
+            }
+            
+            ctx.restore();
+        }
+        
+        // Draw a fluffy cloud
+        function drawCloud(x, y, size, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            // Main cloud body
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.arc(x + size * 0.5, y, size * 0.8, 0, Math.PI * 2);
+            ctx.arc(x - size * 0.5, y, size * 0.8, 0, Math.PI * 2);
+            ctx.arc(x + size * 0.25, y - size * 0.5, size * 0.6, 0, Math.PI * 2);
+            ctx.arc(x - size * 0.25, y - size * 0.5, size * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Draw a twinkling sparkle
+        function drawSparkle(x, y, size) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Date.now() * 0.005);
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+            ctx.shadowBlur = 5;
+            
+            // Draw cross shape sparkle
+            ctx.fillRect(-size, -size/4, size*2, size/2);
+            ctx.fillRect(-size/4, -size, size/2, size*2);
+            
+            ctx.restore();
+        }
+
+        // Main game loop
+        function gameLoop() {
+            // Clear canvas and draw dreamy background
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawDreamyBackground();
+            
+            // Update game objects
+            updatePlayer();
+            checkCollisions();
+            
+            // Update and draw items
+            gameState.items.forEach(item => {
+                item.update();
+                item.draw();
+            });
+            
+            // Update and draw fireworks
+            updateFireworks();
+            
+            // Draw player
+            drawPlayer();
+            
+            // Continue game loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Event listeners
+        window.addEventListener('keydown', (e) => {
+            gameState.keys[e.key] = true;
+            e.preventDefault();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            gameState.keys[e.key] = false;
+        });
+
+        // Restart game function
+        function restartGame() {
+            initGame();
+        }
+
+        // Start the game
+        initAudio();
+        initGame();
+        gameLoop();
+    </script>
+</body>
+</html>
