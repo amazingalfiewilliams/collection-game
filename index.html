@@ -15,6 +15,7 @@
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
+            touch-action: manipulation; /* Prevent zoom on mobile */
         }
 
         .game-container {
@@ -44,6 +45,12 @@
             border-radius: 10px;
             background: #2c3e50;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            touch-action: none; /* Prevent default touch behaviors */
+            cursor: grab;
+        }
+
+        #gameCanvas:active {
+            cursor: grabbing;
         }
 
         .controls {
@@ -64,12 +71,38 @@
             font-size: 1.1em;
             border-radius: 5px;
             cursor: pointer;
-            margin-top: 10px;
+            margin: 5px;
             transition: background 0.3s;
         }
 
         .restart-btn:hover {
             background: #c0392b;
+        }
+
+        /* Mobile-specific styles */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .game-info {
+                font-size: 1em;
+            }
+            
+            #gameCanvas {
+                max-width: 100vw;
+                max-height: 60vh;
+            }
+            
+            .restart-btn {
+                padding: 12px 20px;
+                font-size: 1em;
+                margin: 3px;
+            }
         }
     </style>
 </head>
@@ -80,16 +113,17 @@
         <div class="game-info">
             <div>Score: <span id="score">0</span></div>
             <div>Items Collected: <span id="itemCount">0</span></div>
+            <div>Level: <span id="currentLevel">1</span> - <span id="levelName">Easy</span></div>
         </div>
         
         <canvas id="gameCanvas" width="600" height="400"></canvas>
         
         <div class="controls">
-            <p>🎯 Use ARROW KEYS or WASD to move</p>
+            <p>🎯 <span class="desktop-controls">Use ARROW KEYS or WASD to move</span><span class="mobile-controls" style="display:none;">Drag Alfie to move around!</span></p>
             <p>🥕 Collect the carrots to increase your score!</p>
             <div style="margin: 10px 0;">
                 <button class="restart-btn" onclick="startMusic()" style="background: #27ae60;">🎵 Play Music</button>
-                <button class="restart-btn" onclick="stopMusic()" style="background: #e67e22; margin-left: 10px;">🔇 Stop Music</button>
+                <button class="restart-btn" onclick="stopMusic()" style="background: #e67e22;">🔇 Stop Music</button>
             </div>
             <button class="restart-btn" onclick="restartGame()">Restart Game</button>
         </div>
@@ -101,6 +135,21 @@
         const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
         const itemCountElement = document.getElementById('itemCount');
+        const currentLevelElement = document.getElementById('currentLevel');
+        const levelNameElement = document.getElementById('levelName');
+
+        // Touch/mouse input variables
+        let isMouseDown = false;
+        let isDragging = false;
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        // Update controls text for mobile
+        if (isMobile) {
+            document.querySelector('.desktop-controls').style.display = 'none';
+            document.querySelector('.mobile-controls').style.display = 'inline';
+        }
 
         // Audio context for background music
         let audioContext;
@@ -243,8 +292,95 @@
             itemsCollected: 0,
             keys: {},
             lastFireworkMilestone: 0,
-            fireworks: []
+            fireworks: [],
+            currentLevel: 1,
+            levelName: "Easy"
         };
+
+        // Get mouse/touch position relative to canvas
+        function getEventPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            let clientX, clientY;
+            
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            return {
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
+            };
+        }
+
+        // Check if point is inside player
+        function isPointInPlayer(x, y) {
+            const dx = x - gameState.player.x;
+            const dy = y - gameState.player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance <= gameState.player.size * 1.5; // Slightly larger hit area for easier touch
+        }
+
+        // Mouse/Touch event handlers
+        function handleStart(e) {
+            e.preventDefault();
+            const pos = getEventPos(e);
+            
+            if (isPointInPlayer(pos.x, pos.y)) {
+                isMouseDown = true;
+                touchStartX = pos.x;
+                touchStartY = pos.y;
+                canvas.style.cursor = 'grabbing';
+            }
+        }
+
+        function handleMove(e) {
+            e.preventDefault();
+            if (!isMouseDown) return;
+            
+            const pos = getEventPos(e);
+            const deltaX = pos.x - touchStartX;
+            const deltaY = pos.y - touchStartY;
+            
+            // Only start dragging if moved more than a small threshold
+            if (!isDragging && (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5)) {
+                isDragging = true;
+            }
+            
+            if (isDragging) {
+                // Move player to touch/mouse position
+                gameState.player.x = pos.x;
+                gameState.player.y = pos.y;
+                
+                // Keep player within canvas bounds
+                gameState.player.x = Math.max(gameState.player.size, Math.min(canvas.width - gameState.player.size, gameState.player.x));
+                gameState.player.y = Math.max(gameState.player.size, Math.min(canvas.height - gameState.player.size, gameState.player.y));
+            }
+        }
+
+        function handleEnd(e) {
+            e.preventDefault();
+            isMouseDown = false;
+            isDragging = false;
+            canvas.style.cursor = 'grab';
+        }
+
+        // Add event listeners for both mouse and touch
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseleave', handleEnd);
+
+        canvas.addEventListener('touchstart', handleStart, { passive: false });
+        canvas.addEventListener('touchmove', handleMove, { passive: false });
+        canvas.addEventListener('touchend', handleEnd, { passive: false });
+        canvas.addEventListener('touchcancel', handleEnd, { passive: false });
 
         // Item class
         class CollectibleItem {
@@ -254,10 +390,30 @@
                 this.size = 8;
                 this.color = '#ff6b35';
                 this.pulse = 0;
+                this.moveSpeed = 0;
+                this.moveAngle = Math.random() * Math.PI * 2;
+                this.originalX = this.x;
+                this.originalY = this.y;
+                
+                // Set movement based on current level
+                if (gameState.currentLevel >= 2) {
+                    this.moveSpeed = gameState.currentLevel >= 4 ? 1.5 : 0.8; // Extreme level moves faster
+                }
             }
 
             update() {
                 this.pulse += 0.1;
+                
+                // Move carrot in higher levels
+                if (this.moveSpeed > 0) {
+                    this.moveAngle += 0.02;
+                    this.x = this.originalX + Math.sin(this.moveAngle) * 30;
+                    this.y = this.originalY + Math.cos(this.moveAngle * 0.7) * 20;
+                    
+                    // Keep within bounds
+                    this.x = Math.max(this.size, Math.min(canvas.width - this.size, this.x));
+                    this.y = Math.max(this.size, Math.min(canvas.height - this.size, this.y));
+                }
             }
 
             draw() {
@@ -431,8 +587,11 @@
             gameState.itemsCollected = 0;
             gameState.lastFireworkMilestone = 0;
             gameState.fireworks = [];
+            gameState.currentLevel = 1;
+            gameState.levelName = "Easy";
+            gameState.player.speed = 3;
             
-            // Spawn initial items
+            // Spawn initial items for Easy level
             for (let i = 0; i < 8; i++) {
                 spawnItem();
             }
@@ -460,26 +619,29 @@
             return Math.sqrt(dx * dx + dy * dy);
         }
 
-        // Handle player movement
+        // Handle player movement (keyboard only - touch is handled by event listeners)
         function updatePlayer() {
-            const player = gameState.player;
-            
-            if (gameState.keys['ArrowLeft'] || gameState.keys['a'] || gameState.keys['A']) {
-                player.x -= player.speed;
-            }
-            if (gameState.keys['ArrowRight'] || gameState.keys['d'] || gameState.keys['D']) {
-                player.x += player.speed;
-            }
-            if (gameState.keys['ArrowUp'] || gameState.keys['w'] || gameState.keys['W']) {
-                player.y -= player.speed;
-            }
-            if (gameState.keys['ArrowDown'] || gameState.keys['s'] || gameState.keys['S']) {
-                player.y += player.speed;
-            }
+            // Only process keyboard input if not dragging
+            if (!isDragging) {
+                const player = gameState.player;
+                
+                if (gameState.keys['ArrowLeft'] || gameState.keys['a'] || gameState.keys['A']) {
+                    player.x -= player.speed;
+                }
+                if (gameState.keys['ArrowRight'] || gameState.keys['d'] || gameState.keys['D']) {
+                    player.x += player.speed;
+                }
+                if (gameState.keys['ArrowUp'] || gameState.keys['w'] || gameState.keys['W']) {
+                    player.y -= player.speed;
+                }
+                if (gameState.keys['ArrowDown'] || gameState.keys['s'] || gameState.keys['S']) {
+                    player.y += player.speed;
+                }
 
-            // Keep player within canvas bounds
-            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
-            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+                // Keep player within canvas bounds
+                player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+                player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+            }
         }
 
         // Check for collisions
@@ -516,6 +678,9 @@
                     // Spawn new item
                     spawnItem();
                     
+                    // Update level based on new score
+                    updateLevel();
+                    
                     updateUI();
                 }
             }
@@ -525,6 +690,70 @@
         function updateUI() {
             scoreElement.textContent = gameState.score;
             itemCountElement.textContent = gameState.itemsCollected;
+            currentLevelElement.textContent = gameState.currentLevel;
+            levelNameElement.textContent = gameState.levelName;
+        }
+
+        // Level management functions
+        function getLevelInfo(score) {
+            if (score < 500) {
+                return { level: 1, name: "Easy", speed: 3, itemCount: 8, spawnRate: 1 };
+            } else if (score < 1000) {
+                return { level: 2, name: "Medium", speed: 4, itemCount: 6, spawnRate: 0.8 };
+            } else if (score < 1500) {
+                return { level: 3, name: "Hard", speed: 5, itemCount: 5, spawnRate: 0.6 };
+            } else {
+                return { level: 4, name: "Extreme", speed: 6, itemCount: 4, spawnRate: 0.4 };
+            }
+        }
+
+        function updateLevel() {
+            const levelInfo = getLevelInfo(gameState.score);
+            const oldLevel = gameState.currentLevel;
+            
+            gameState.currentLevel = levelInfo.level;
+            gameState.levelName = levelInfo.name;
+            gameState.player.speed = levelInfo.speed;
+            
+            // If level changed, show level up notification
+            if (oldLevel !== levelInfo.level) {
+                showLevelUpNotification(levelInfo.name);
+                
+                // Adjust item count for new level
+                while (gameState.items.length > levelInfo.itemCount) {
+                    gameState.items.pop();
+                }
+                while (gameState.items.length < levelInfo.itemCount) {
+                    spawnItem();
+                }
+            }
+        }
+
+        function showLevelUpNotification(levelName) {
+            // Create a temporary notification overlay
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 20px 40px;
+                border-radius: 10px;
+                font-size: 24px;
+                font-weight: bold;
+                z-index: 1000;
+                text-align: center;
+                border: 3px solid gold;
+            `;
+            notification.innerHTML = `🎉 LEVEL UP! 🎉<br>Welcome to ${levelName} Level!`;
+            document.body.appendChild(notification);
+            
+            // Remove notification after 3 seconds
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 3000);
         }
 
         // Draw player
@@ -532,12 +761,20 @@
             const player = gameState.player;
             ctx.save();
             
+            // Add a slight glow effect when being dragged
+            if (isDragging) {
+                ctx.shadowColor = '#ffff00';
+                ctx.shadowBlur = 20;
+            }
+            
             // Draw guinea pig body
             ctx.fillStyle = '#8b4513';
             ctx.strokeStyle = '#654321';
             ctx.lineWidth = 2;
-            ctx.shadowColor = player.color;
-            ctx.shadowBlur = 10;
+            if (!isDragging) {
+                ctx.shadowColor = player.color;
+                ctx.shadowBlur = 10;
+            }
             
             // Main body (oval shape)
             ctx.beginPath();
@@ -612,12 +849,34 @@
 
         // Draw dreamy background
         function drawDreamyBackground() {
-            // Create gradient background
+            // Create gradient background that changes with level
             const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-            gradient.addColorStop(0, '#ff9a9e');
-            gradient.addColorStop(0.3, '#fecfef');
-            gradient.addColorStop(0.6, '#fecfef');
-            gradient.addColorStop(1, '#ffd1ff');
+            
+            if (gameState.currentLevel === 1) {
+                // Easy - Soft pink gradient
+                gradient.addColorStop(0, '#ff9a9e');
+                gradient.addColorStop(0.3, '#fecfef');
+                gradient.addColorStop(0.6, '#fecfef');
+                gradient.addColorStop(1, '#ffd1ff');
+            } else if (gameState.currentLevel === 2) {
+                // Medium - Blue gradient
+                gradient.addColorStop(0, '#667eea');
+                gradient.addColorStop(0.3, '#764ba2');
+                gradient.addColorStop(0.6, '#667eea');
+                gradient.addColorStop(1, '#764ba2');
+            } else if (gameState.currentLevel === 3) {
+                // Hard - Purple gradient
+                gradient.addColorStop(0, '#8360c3');
+                gradient.addColorStop(0.3, '#2ebf91');
+                gradient.addColorStop(0.6, '#8360c3');
+                gradient.addColorStop(1, '#2ebf91');
+            } else {
+                // Extreme - Dark red gradient
+                gradient.addColorStop(0, '#ff416c');
+                gradient.addColorStop(0.3, '#ff4b2b');
+                gradient.addColorStop(0.6, '#ff416c');
+                gradient.addColorStop(1, '#ff4b2b');
+            }
             
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -699,7 +958,7 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // Event listeners
+        // Event listeners for keyboard (still works for desktop)
         window.addEventListener('keydown', (e) => {
             gameState.keys[e.key] = true;
             e.preventDefault();
