@@ -122,7 +122,7 @@
             <p>🎯 <span class="desktop-controls">Use ARROW KEYS or WASD to move</span><span class="mobile-controls" style="display:none;">Drag Alfie to move around!</span></p>
             <p>🥕 Collect the carrots to increase your score!</p>
             <div style="margin: 10px 0;">
-                <button class="restart-btn" onclick="startMusic()" style="background: #27ae60;">🎵 Play Music</button>
+                <button class="restart-btn" id="playMusicBtn" onclick="toggleMusic()" style="background: #27ae60;">🎵 Play Music</button>
                 <button class="restart-btn" onclick="stopMusic()" style="background: #e67e22;">🔇 Stop Music</button>
             </div>
             <button class="restart-btn" onclick="restartGame()">Restart Game</button>
@@ -163,6 +163,9 @@
                 musicGain = audioContext.createGain();
                 musicGain.connect(audioContext.destination);
                 musicGain.gain.value = 0.1; // Low volume for background music
+                
+                // For iOS compatibility, we need to initialize in suspended state
+                console.log('Audio context initialized, state:', audioContext.state);
             } catch (e) {
                 console.log('Web Audio API not supported:', e);
                 audioContext = null;
@@ -230,9 +233,22 @@
 
         // Play calming background music loop
         function playBackgroundMusic() {
-            if (!audioContext || isPlaying) return;
+            if (!audioContext) {
+                console.log('No audio context for music');
+                return;
+            }
+            
+            if (audioContext.state !== 'running') {
+                console.log('Audio context not running:', audioContext.state);
+                return;
+            }
+            
+            if (isPlaying) return;
             
             isPlaying = true;
+            console.log('Starting background music...');
+            updateMusicButtonText();
+            
             const now = audioContext.currentTime;
             
             // Gentle chord progression in C major pentatonic (calming scale)
@@ -263,12 +279,35 @@
             }, 16000); // 16 seconds loop
         }
 
-        // Start music (must be triggered by user interaction)
+        // Enhanced start music function for iOS compatibility
         function startMusic() {
-            if (audioContext && audioContext.state === 'suspended') {
-                audioContext.resume();
+            if (!audioContext) {
+                console.log('No audio context available');
+                return;
             }
-            playBackgroundMusic();
+            
+            // Create a simple test sound first to unlock audio on iOS
+            const testOscillator = audioContext.createOscillator();
+            const testGain = audioContext.createGain();
+            testOscillator.connect(testGain);
+            testGain.connect(audioContext.destination);
+            testGain.gain.value = 0; // Silent test tone
+            testOscillator.frequency.value = 440;
+            testOscillator.start();
+            testOscillator.stop(audioContext.currentTime + 0.01);
+            
+            // Resume audio context if suspended
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    console.log('Audio context resumed, state:', audioContext.state);
+                    playBackgroundMusic();
+                }).catch(err => {
+                    console.log('Failed to resume audio context:', err);
+                });
+            } else {
+                console.log('Audio context state:', audioContext.state);
+                playBackgroundMusic();
+            }
         }
 
         // Stop music
@@ -276,6 +315,38 @@
             if (audioContext) {
                 audioContext.suspend();
                 isPlaying = false;
+            }
+            updateMusicButtonText();
+        }
+
+        // Toggle music with better user feedback
+        function toggleMusic() {
+            const button = document.getElementById('playMusicBtn');
+            
+            if (isPlaying) {
+                stopMusic();
+            } else {
+                button.textContent = '🔄 Starting...';
+                button.disabled = true;
+                
+                // Add a small delay to show the loading state
+                setTimeout(() => {
+                    startMusic();
+                    button.disabled = false;
+                    updateMusicButtonText();
+                }, 100);
+            }
+        }
+
+        // Update button text based on music state
+        function updateMusicButtonText() {
+            const button = document.getElementById('playMusicBtn');
+            if (isPlaying) {
+                button.textContent = '⏸️ Pause Music';
+                button.style.background = '#e67e22';
+            } else {
+                button.textContent = '🎵 Play Music';
+                button.style.background = '#27ae60';
             }
         }
 
@@ -972,6 +1043,26 @@
         function restartGame() {
             initGame();
         }
+
+        // Mobile audio unlock - iOS requires user interaction to enable audio
+        function unlockAudio() {
+            if (audioContext && audioContext.state === 'suspended') {
+                const buffer = audioContext.createBuffer(1, 1, 22050);
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioContext.destination);
+                source.start();
+                
+                audioContext.resume().then(() => {
+                    console.log('Audio unlocked for mobile');
+                });
+            }
+        }
+
+        // Add mobile audio unlock listeners
+        document.addEventListener('touchstart', unlockAudio, { once: true });
+        document.addEventListener('touchend', unlockAudio, { once: true });
+        document.addEventListener('click', unlockAudio, { once: true });
 
         // Start the game
         initAudio();
